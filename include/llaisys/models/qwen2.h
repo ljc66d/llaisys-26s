@@ -4,39 +4,48 @@
 #include "../tensor.h"
 
 __C {
-    struct LlaisysQwen2Meta {
-        llaisysDataType_t dtype;
-        size_t nlayer, hs, nh, nkvh, dh, di, maxseq, voc;
-        float epsilon, theta;
-        int64_t end_token;
-    };
+    typedef struct {
+        int num_layers;        // Transformer层数
+        int hidden_dim;        // 隐藏层维度
+        int num_heads;         // 注意力头数
+        int num_kv_heads;      // KV头数
+        int head_dim;          // 每个头的维度
+        int intermediate_size; // FFN中间层维度
+        int vocab_size;        // 词表大小
+        int max_seq_len;       // KV缓存最大长度
+        float epsilon;         // RMSNorm epsilon
+        float theta;           // RoPE theta
+        llaisysDataType_t dtype; // 权重数据类型
+    } LlaisysQwen2Config;
 
-    struct LlaisysQwen2Weights {
-        llaisysTensor_t in_embed;
-        llaisysTensor_t out_embed;
-        llaisysTensor_t out_norm_w;   // a.k.a. model.norm.weight
-        llaisysTensor_t *attn_norm_w; // a.k.a. input_layernorm.weight
-        llaisysTensor_t *attn_q_w;
-        llaisysTensor_t *attn_q_b;
-        llaisysTensor_t *attn_k_w;
-        llaisysTensor_t *attn_k_b;
-        llaisysTensor_t *attn_v_w;
-        llaisysTensor_t *attn_v_b;
-        llaisysTensor_t *attn_o_w;
-        llaisysTensor_t *mlp_norm_w; // a.k.a. post_attention_layernorm.weight
-        llaisysTensor_t *mlp_gate_w;
-        llaisysTensor_t *mlp_up_w;
-        llaisysTensor_t *mlp_down_w;
-    };
+    
 
     struct LlaisysQwen2Model;
+    typedef struct LlaisysQwen2Model *LlaisysQwen2ModelHandle;
 
-    __export struct LlaisysQwen2Model *llaisysQwen2ModelCreate(const LlaisysQwen2Meta *meta, llaisysDeviceType_t device, int *device_ids, int ndevice);
+    __export LlaisysQwen2ModelHandle llaisysQwen2ModelCreate(
+        const LlaisysQwen2Config *config,
+        llaisysDeviceType_t device,
+        int *device_ids,
+        int ndevice);
 
-    __export void llaisysQwen2ModelDestroy(struct LlaisysQwen2Model * model);
+    __export void llaisysQwen2ModelDestroy(
+        LlaisysQwen2ModelHandle model);
 
-    __export struct LlaisysQwen2Weights *llaisysQwen2ModelWeights(struct LlaisysQwen2Model * model);
+    __export void llaisysQwen2ModelLoadWeight(
+        LlaisysQwen2ModelHandle model,
+        const char *name,
+        const void *data,
+        const int64_t *shape,
+        int ndim);
 
-    __export int64_t llaisysQwen2ModelInfer(struct LlaisysQwen2Model * model, int64_t * token_ids, size_t ntoken);
+    __export void llaisysQwen2ModelForward(
+        LlaisysQwen2ModelHandle model,
+        const int64_t *input_ids,
+        int seq_len,
+        float *output_logits);
+
+    __export void llaisysQwen2ModelResetKVCache(
+        LlaisysQwen2ModelHandle model);
 }
 #endif // LLAISYS_MODELS_QWEN2_H

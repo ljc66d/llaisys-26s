@@ -1,3 +1,9 @@
+import sys
+
+sys.path.insert(0, "../python")
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..", "python")))
+
 import llaisys
 import torch
 
@@ -120,6 +126,7 @@ def check_equal(
     rtol=1e-5,
     strict=False,
 ):
+
     shape = llaisys_result.shape()
     strides = llaisys_result.strides()
     assert shape == torch_answer.shape
@@ -140,13 +147,17 @@ def check_equal(
         ),
     )
     result = torch.as_strided(tmp, shape, strides)
-    api = llaisys.RuntimeAPI(llaisys_result.device_type())
-    api.memcpy_sync(
-        result.data_ptr(),
-        llaisys_result.data_ptr(),
-        (right + 1) * tmp.element_size(),
-        llaisys.MemcpyKind.D2D,
-    )
+    try:
+        api = llaisys.RuntimeAPI(llaisys_result.device_type())
+        api.memcpy_sync(
+            result.data_ptr(),
+            llaisys_result.data_ptr(),
+            (right + 1) * tmp.element_size(),
+            llaisys.MemcpyKind.D2D,
+        )
+    except Exception as e:
+        print("Error in memcpy_sync:", e)
+        raise
 
     if strict:
         if torch.equal(result, torch_answer):
@@ -188,6 +199,8 @@ def torch_device(device_name: str, device_id=0):
         return torch.device("cpu")
     elif device_name == "nvidia":
         return torch.device(f"cuda:{device_id}")
+    elif device_name == "iluvatar":
+        return torch.device("cuda", device_id)
     else:
         raise ValueError(f"Unsupported device name: {device_name}")
 
@@ -197,6 +210,8 @@ def llaisys_device(device_name: str):
         return llaisys.DeviceType.CPU
     elif device_name == "nvidia":
         return llaisys.DeviceType.NVIDIA
+    elif device_name == "iluvatar":
+        return llaisys.DeviceType.ILUVATAR
     else:
         raise ValueError(f"Unsupported device name: {device_name}")
 
@@ -206,6 +221,8 @@ def device_name(llaisys_device: llaisys.DeviceType):
         return "cpu"
     elif llaisys_device == llaisys.DeviceType.NVIDIA:
         return "nvidia"
+    elif llaisys_device == llaisys.DeviceType.ILUVATAR:
+        return "iluvatar"
     else:
         raise ValueError(f"Unsupported llaisys device: {llaisys_device}")
 

@@ -1,12 +1,20 @@
+
 import sys
 import os
-
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..", "python")))
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, parent_dir)
 import llaisys
 import torch
 from test_utils import random_tensor, check_equal, benchmark
+from llaisys import ops
 
+print("=== 路径排查 ===")
+print("llaisys 包路径:", llaisys.__file__)
+print("ops 模块路径:", ops.__file__)
+print("加载的核心DLL路径:", ops.LIB_LLAISYS._name)
+print("sys.path 前3项:", sys.path[:3])
+print("==================")
 
 def torch_add(ans, a, b):
     torch.add(a, b, out=ans)

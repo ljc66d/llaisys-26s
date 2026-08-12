@@ -10,12 +10,18 @@ lib/
 *.dylib
 *.pyd
 
+
+deepseek_model/
+*.gguf
+*.bin
+*.safetensors
+
 # MacOS Cache
 .DS_Store
 
 # Vscode
 .vscode/
-
+.vs/
 # Python
 __pycache__/
 
@@ -87,4 +93,4 @@ htmlcov/
 # Windows
 Thumbs.db
 ehthumbs.db
-desktop.ini
+desktop.ini.vs/

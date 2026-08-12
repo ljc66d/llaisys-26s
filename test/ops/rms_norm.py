@@ -1,9 +1,12 @@
 import sys
 import os
+import llaisys
 
+print("当前加载DLL路径:", os.path.abspath(llaisys.ops.LIB_LLAISYS._name))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..", "python")))
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, parent_dir)
-import llaisys
+
 import torch
 from test_utils import random_tensor, check_equal, benchmark
 

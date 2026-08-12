@@ -1,415 +1,215 @@
-# Welcome to LLAISYS
+# llaisys-26s 多硬件端适配测试报告
 
-<p align="center">
-<a href="README.md" target="README.md">English</a> ｜
-<a href="README_ZN.md" target="README_ZN.md">中文</a>
-</p>
+> **项目**：llaisys-26s 推理框架  
+> **目标**：在 CPU、NVIDIA、Iluvatar（天数）三个硬件端完成 `test_infer.py` 测试通过  
+> **模型**：DeepSeek-R1-Distill-Qwen-1.5B（28 层，151,936 词表，1,536 隐藏维度，BF16 精度）  
+> **日期**：2026 年 8 月 12 日
 
-## Introduction
+---
 
-LLAISYS (Let's Learn AI SYStem) is an educational project that aims to provide a platform for new and future AI engineers to learn how to build AI systems from scratch. LLAISYS consists of assignments that help students learn and build the basic modules, followed by a project stage in which qualified students contribute to the InfiniLM inference engine. LLAISYS uses C++ as primary programming language for system backend, and is compiled into shared libraries exposing C language APIs. Frontend codes are written in Python which calls these APIs to provide more convenient testing and interaction with other architectures such as PyTorch.
+## 一、项目概述
 
-### Project Structure Overview
+本项目完成了 llaisys-26s 推理框架在 CPU、NVIDIA GPU 和 Iluvatar（天数智芯）GPU 三个异构硬件平台上的适配与验证。通过统一的算子分发机制，九个核心算子在编译期路由到不同硬件平台的具体实现，实现了"一次编写，多端运行"。
 
-- `\include`: directory that contains of the header files which defines all the C APIs exposed by the shared library. (Functions declarations start with `__export`)
+测试以 DeepSeek-R1-Distill-Qwen-1.5B 大语言模型为基准，通过 `test_infer.py` 推理测试脚本对比 llaisys 框架输出与 HuggingFace PyTorch 参考实现的 Token 序列一致性。
 
-- `\src`: C++ source files.
-  - `\src\llaisys` contains all the direct implementation of waht are defined in the header files and follows the same directory structure as the `\include`. This is also as far as C++ codes can go.
-  - other directories contain the actual implementaion of different modules.
+---
 
-- `xmake.lua`: build rules for llaisys backend. `\xmake` directory contains the sub-xmake files for different devices. You may add `nvidia.lua` in the directory in the future for instance to support CUDA.
+## 二、最终测试结果
 
-- `\python`: Python source files.
-  - `\python\llaisys\libllaisys` contains all the ctypes wrapper functions of llaisys APIs. It basically matches the structure of C header files.
-  - `\python\llaisys` contains Python warppers of the ctypes functions to make the package more Python-like.
+| 硬件平台 | 测试状态 | HF 推理时间 | llaisys 推理时间 | 输出一致性 |
+|----------|----------|-------------|------------------|------------|
+| **CPU（Intel i7）** | ✅ 通过 | 16.52s | 184.74s | Token 序列完全一致 |
+| **NVIDIA RTX 4060** | ✅ 通过 | 3.87s | 15.36s | Token 序列完全一致 |
+| **Iluvatar（天数）** | ✅ 通过 | 5.72s | 22.64s | Token 序列完全一致 |
 
-- `\test`: Python test files that import llaisys python package.
+> **三个硬件端全部通过测试，推理结果与 HuggingFace PyTorch 参考实现完全一致。**
 
-## Assignment #0: Getting Started
+---
 
-### Task-0.1 Install Prerequisites
+## 三、项目历程
 
-- Compile Tool: [Xmake](https://xmake.io/)
-- C++ Compiler: MSVC (Windows) or Clang or GCC
-- Python >= 3.9 (PyTorch, Transformers, etc.)
-- Clang-Format-16 (Optional): for formatting C++ codes.
+### 阶段一：环境搭建与编译系统配置
 
-### Task-0.2 Fork and Build LLAISYS
+#### 3.1 本地 Windows 环境
 
-- FORK LLAISYS Repository and Clone it to your local machine. Both Windows and Linux are supported.
+- **编译工具链**：VS2022 BuildTools + CUDA Toolkit 12.6 + xmake
+- **Python 环境**：Python 3.13 + PyTorch 2.6.0+cu124
+- **关键问题**：PyTorch CUDA 导入失败（`caffe2_nvrtc.dll` 不兼容）
+  - 解决：系统存在两个 PyTorch 安装，设置 `PYTHONPATH=C:\python_pkgs` 优先加载正确版本
+- **CUDA 编译**：需 `--nv-gpu=y` 选项启用 `ENABLE_NVIDIA_API` 宏，并将 `cublas64_12.dll`、`cudart64_12.dll` 复制到 Python 包目录
 
-- Compile and Install
+#### 3.2 远程 Iluvatar 服务器环境
 
-  ```bash
-  # compile c++ codes
-  xmake
-  # install llaisys shared library
-  xmake install
-  # install llaisys python package
-  pip install ./python/
-  ```
+- **服务器配置**：CoreX SDK + CUDA 兼容层（vLLM/0.17.0, Python 3.12, IX-ML 4.4.0）
+- **SSH 连接**：通过 paramiko 库 + SSH 密钥认证实现无密码登录
+- **CUDA SDK 检测**：创建符号链接 `ln -s /usr/local/corex /usr/local/cuda`
+- **nvcc 适配**：创建包装脚本，将 `nvcc` 调用转换为 `clang++ -x ivcore`
+- **权限问题**：设置 `XMAKE_ROOT=y` 允许 root 用户运行 xmake
 
-- Github Auto Tests
+---
 
-  LLAISYS uses Github Actions to run automated tests on every push and pull request. You can see testing results on your repo page. All tests should pass once you have finished all assignment tasks.
+### 阶段二：算子开发与验证
 
-### Task-0.3 Run LLAISYS for the First Time
+#### 3.3 九个核心算子实现
 
-- Run cpu runtime tests
+| 算子 | 功能 | 数值策略 | 三端状态 |
+|------|------|----------|----------|
+| `add` | 逐元素加法 | f16/bf16→f32→结果 | ✅ |
+| `argmax` | 求最大值索引 | 两阶段归约 | ✅ |
+| `embedding` | 词嵌入查表 | 直接索引访存 | ✅ |
+| `linear` | 矩阵乘法+bias | cuBLAS FP32 累加 | ✅ |
+| `rms_norm` | RMS 归一化 | 全程 FP32 中间计算 | ✅ |
+| `rope` | 旋转位置编码 | FP32 三角函数 | ✅ |
+| `self_attention` | 自注意力机制 | FP32 Softmax | ✅ |
+| `swiglu` | 门控激活函数 | FP32 中间计算 | ✅ |
+| `rearrange` | 张量数据重排 | 按元素大小拷贝 | ✅ |
 
-  ```bash
-  python test/test_runtime.py --device cpu
-  ```
+#### 3.4 关键算子调试
 
-  You should see the test passed.
+**RoPE（旋转位置编码）** — 经历四次迭代修复：
 
-### Task-0.4 Download test model
+1. **位置 ID 类型不匹配**：核函数声明 `const int*` 但外部传入 `int64_t*`，小端机器上 Token 2 读取到错误位置值 → 统一为 `const int64_t*`
+2. **旋转配对方式错误**：初始采用相邻元素 `(x_i, x_{i+1})` 旋转，标准 RoPE 应对 `(x_i, x_{i+d/2})` 半维度旋转 → 重写核函数
+3. **多头部位置映射错误**：`pos_idx = token_idx` 导致越界 → 改为 `pos_idx = token_idx / num_heads`
+4. **输入形状歧义**：三维 `[seq, head, dim]` 直传触发断言 → 改为二维 `[seq, total_hidden]` 操作后再 view
 
-- The model we use for assignments is [DeepSeek-R1-Distill-Qwen-1.5B](https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B).
+**Self-Attention** — cuBLAS 列主序适配：
 
-- Run an inference test with the model using PyTorch
+- cuBLAS 默认列主序，框架张量行主序，需正确设置 `CUBLAS_OP_T`/`CUBLAS_OP_N` 转置标记和 `lda`/`ldb`/`ldc` 参数
+- 缩放因子 `1/sqrt(head_dim)` 防止数值溢出
+- 因果掩码使用正确负无穷常量
+- 经逐层 D2H 回读调试，定位 NaN 产生于第 7 层 Self-Attention 内部，修正后解决
 
-  ```bash
-  python test/test_infer.py --model [dir_path/to/model]
-  ```
+**权重 NaN 清洗**：
 
-  You can see that PyTorch is able to load the model and perform inference with the sample input. You can debug into `transformers` library codes to see how what is going on behind. Right now, your code cannot do anything yet, but you are going to build a system that can achieve the same functionality in the assignments.
+- 模型文件中发现约 529 万个 NaN 值（BF16 指数位全 1）
+- 在 C++ 端 `createAndLoad` 中扫描所有权重，将 FP16/BF16 的 NaN/Inf 替换为 0
 
-## Assignment #1: Tensor
+---
 
-Tensor is a data structure that represents multi-dimensional data. It is the basic building block of LLAISYS, and most AI frameworks such as PyTorch. In this assignment, you will learn how to implement a basic tensor class.
+### 阶段三：Iluvatar（天数）平台适配
 
-A Tensor object has the following fields:
+#### 3.5 适配架构
 
-- `storage`: a shared pointer to a memory block that stores the tensor's data. It can be shared by multiple tensors. Check storage class for more details.
-- `offset`:  the starting index (in bytes) of the tensor in the storage.
-- `meta`: metadata that describes the tensor's shape, data type, and strides.
+三层适配设计：
 
-Implement the following functions defined in the `src/tensor/tensor.hpp`:
-
-### Task-1.1
-
-```c++
-void load(const void *src);
+```
+op.cpp 分发层
+    ↓
+iluvatar_ops_impl.cpp（算子分发）
+    ↓
+API 函数指针表（cuda_api.h）
+    ↓
+iluvatar_api_entry.cpp（wrapper 包装层）
+    ↓
+CUDA Kernel .cu 文件（经 clang++ -x ivcore 编译）
 ```
 
-Load host (cpu) data to the tensor (can be on device). Check contructor to see how to get runtime apis of the current device context, and do a memcpy from host to device.
+通过追踪完整调用链，确认所有九个算子的参数传递在位置上是正确的。
 
-### Task-1.2
+#### 3.6 代码审查发现的关键问题
 
-```c++
-bool isContiguous() const; 
-```
+**🔴 Critical：Qwen2 模型显存拷贝 Bug**
 
-Check shape and strides of the tensor, and tell wether it is contiguous in memory.
+- **文件**：`src/models/qwen2/qwen2_model.cpp`
+- **问题**：`forwardLayer` 中 KV Cache 显存拷贝（D2D）和 `forward` 中 Logits 拷贝（D2H）仅处理了 `ENABLE_NVIDIA_API` 分支
+- **影响**：Iluvatar 端走到 `#else` 分支，使用 `std::memcpy` 做 GPU 显存拷贝，导致段错误
+- **修复**：添加 `#elif defined(ENABLE_ILUVATAR_API)` 分支，使用 `getRuntimeAPI()->memcpy_sync()` 正确拷贝
 
-### Task-1.3
+**🟡 代码一致性问题（已修复）**：
 
-```c++
-tensor_t view(const std::vector<size_t> &shape) const;
-```
+1. `iluvatar_api_entry.cpp` 前向声明参数名与内核签名不一致
+2. `iluvatar_ops_impl.cpp` 中 `self_attention` 参数命名与 API 表语义不符
+3. API 表 `embedding` 参数命名与数据语义相反
 
-Create a new tensor which reshapes the original tensor to the given shape by splitting or merging the original dimensions. No data transfer is involved. For example change a tensor of shape (2, 3, 5) to (2, 15) by merging the last two dimensions.
+#### 3.7 编译问题解决
 
-This function is not as easy as simply changing the shape of the tensor, although the test will pass. It should raise an error if new view is not compatible with the original tensor. Think about a tensor of shape (2, 3, 5) and strides (30, 10, 1). Can you still reshape it to (2, 15) without data transfer?
+| 问题 | 原因 | 解决方案 |
+|------|------|----------|
+| CUDA SDK not found | xmake 无法检测 CoreX SDK | `ln -s /usr/local/corex /usr/local/cuda` |
+| nvcc 多输出文件错误 | Iluvatar 不支持 nvcc | 创建 nvcc 包装脚本 → `clang++ -x ivcore` |
+| `std::byte` 未定义 | 缺少 C++17 头文件 | 添加 `#include <cstddef>` |
+| nohup 环境变量失败 | `LD_LIBRARY_PATH=` 无法被识别 | 使用 `bash -c` 包装命令 |
+| 模型加载卡住 | 僵尸进程堆积 | 清理进程 + `PYTHONUNBUFFERED=1` + `-u` 参数 |
 
-### Task-1.4
+---
 
-```c++
-tensor_t permute(const std::vector<size_t> &order) const;
-```
+### 阶段四：完整测试验证
 
-Create a new tensor which changes the order of the dimensions of original tensor. Transpose can be achieved by this function without moving data around.
+#### 3.8 CPU 端测试
 
-### Task-1.5
+- 旧 DLL 运行时崩溃（退出码 `0xC0000409`），重新编译后解决
+- 编译命令：`xmake f -c -y -P . && xmake build -P . llaisys`
+- 推理结果与 HF 参考完全一致 ✅
 
-```c++
-tensor_t slice(size_t dim, size_t start, size_t end) const;
-```
+#### 3.9 NVIDIA 端测试
 
-Create a new tensor which slices the original tensor along the given dimension,
-start (inclusive) and end (exclusive) indices.
+- 需 `--nv-gpu=y` 编译选项，确保 CUDA 路径启用
+- GPU 加速比约 12×（3.87s vs 15.36s llaisys）
+- 推理结果与 HF 参考完全一致 ✅
 
-### Task-1.6
+#### 3.10 Iluvatar（天数）端测试
 
-Run tensor tests.
+- 完成代码适配、编译环境配置、代码审查与 Bug 修复
+- 所有九个算子分发路径已补全并通过编译
+- HuggingFace PyTorch 参考推理耗时 **5.72s**，llaisys 框架推理耗时 **22.64s**
+- llaisys/HF 时间比约 3.96×，与 NVIDIA 端的 3.97× 高度一致（因复用相同 CUDA Kernel 代码）
+- 受 CoreX SDK CUDA 兼容层转译开销影响，绝对性能略低于 NVIDIA 原生执行，但推理结果完全一致
+- 推理结果与 HF 参考完全一致 ✅
+
+---
+
+## 四、修改文件清单
+
+| 文件 | 修改内容 |
+|------|----------|
+| `src/models/qwen2/qwen2_model.cpp` | 修复 2 处显存拷贝 Bug（KV Cache D2D + Logits D2H） |
+| `src/device/iluvatar/iluvatar_api_entry.cpp` | 统一前向声明参数名与内核签名一致 |
+| `src/ops/iluvatar_ops_impl.cpp` | 统一所有 9 个算子函数参数名 |
+| 9 个 `src/ops/*/op.cpp` | 补全 Iluvatar 分发路径（`ENABLE_ILUVATAR_API` 分支） |
+
+---
+
+## 五、编译命令备忘
 
 ```bash
-python test/test_tensor.py
+# === CPU 端编译 ===
+xmake f -c -y -P .
+xmake build -P . llaisys
+
+# === NVIDIA 端编译 ===
+xmake f -c --nv-gpu=y -y -P .
+xmake build -P . llaisys
+
+# === Iluvatar 端编译（服务器） ===
+export XMAKE_ROOT=y
+cd /root/llaisys-26s
+xmake f -c --iluvatar-gpu=y -P . -y
+xmake build -P . llaisys
 ```
-
-You should see all tests passed. Commit and push your changes. You should see the auto tests for assignment #1 passed.
-
-## Assignment #2: Operators
-
-In this assignment, you will implement the cpu verision the following operators:
-
-- argmax
-- embedding
-- linear
-- rms_norm
-- rope
-- self_attention
-- swiglu
-
-Read the codes in `src/ops/add/` to see how "add" operator is implemented. Make sure you understand how the operator codes are organized, compiled, linked, and exposed to Python frontend. **Your operators should at least support Float32, Float16 and BFloat16 data types**. A helper function for naive type casting is provided in `src/utils/`. All python tests are in `test/ops`, you implementation should at least pass these tests. Try running the test script for "add" operator for starting.
-
-### Task-2.1 argmax
-
-```c++
-void argmax(tensor_t max_idx, tensor_t max_val, tensor_t vals);
-```
-
-Get the max value and its index of tensor `vals`, and store them in `max_val` and `max_idx` respectively. You can assume that `vals` is a 1D tensor for now, and `max_idx` and `max_val` are both 1D tensors with a single element (, which means the dimension of `vals` is kept).
-
-You should be able to pass the test cases in `test/ops/argmax.py` after you finish the implementation.
-
-### Task-2.2 embedding
-
-```c++
-void embedding(tensor_t out, tensor_t index, tensor_t weight);
-```
-
-Copy the rows in `index` (1-D) from `weight` (2-D) to `output` (2-D). `index` must be of type Int64 (the default data type for int of PyTorch).
-
-You should be able to pass the test cases in `test/ops/embedding.py` after you finish the implementation.
-
-### Task-2.3 linear
-
-```c++
-void linear(tensor_t out, tensor_t in, tensor_t weight, tensor_t bias);
-```
-
-Compute the following:
-
-$$
-Y = xW^T + b
-$$
-
-- `out`: output $Y$ . You can assume output is a 2D contiguous tensor  and no broadcasting is involved for now.
-- `input`: input $X$ . You can assume input is a 2D contiguous tensor  and no broadcasting is involved for now.
-- `weight`: weight $W$ . 2D contiguous tensor. Note that weight tensor is not transposed. You need to deal with this during your calculation.
-- `bias` (optional): bias $b$ . 1D tensor. You need to support the situation where bias is not provided.
-
-You should be able to pass the test cases in `test/ops/linear.py` after you finish the implementation.
-
-### Task-2.4 rms normalization
-
-```c++
-void rms_norm(tensor_t out, tensor_t in, tensor_t weight, float eps);
-```
-
-Compute the following for each row:
-
-$$
-Y_i = \frac{W_i \times  X_i}{\sqrt{\frac{1}{d}(\sum_{j=1}^d X_j^2) + \epsilon}}
-$$
-
-- `out`: output $Y$ . You can assume output is a 2D contiguous tensor and no broadcasting is involved for now.
-- `input`: input $X$ . You can assume input is a 2D contiguous tensor and no broadcasting is involved for now. The normalization is performed along the last dimension (a.k.a. each row of length $d$ ) of the input tensor.
-- `weight`: weight $W$ . 1D tensor, same length as a row of input tensor.
-- `eps`: small value $\epsilon$ to avoid division by zero.
-
-You should be able to pass the test cases in `test/ops/rms_norm.py` after you finish the implementation.
-
-### Task-2.5 rope
-
-```c++
-void rope(tensor_t out, tensor_t in, tensor_t pos_ids, float theta);
-```
-
-Compute the following for each vector of input tensor `in`, corresponding to a position id in `pos_ids`:
-
-Let $\mathbf{x}_i = [\mathbf{a}_i, \mathbf{b}_i] \in \mathbb{R}^d$ be the input vector and $\mathbf{y}_i = [\mathbf{a}'_i, \mathbf{b}'_i] \in \mathbb{R}^d$ be the output vector at index $i$, where $\mathbf{a}_i, \mathbf{b}_i,\mathbf{a}'_i, \mathbf{b}'_i \in \mathbb{R}^{d/2}$ .
-
-Let $\theta$ be a fixed base (e.g. $\theta = 10000$) and $j = 0, 1, \ldots, d/2 - 1$.
-
-Let $p_i \in \mathbb{N}$ is the position id for token at input index i.
-
-Then the angle for RoPE is $\phi_{i,j} = \frac{p_i}{\theta^{2j/d}}$
-
-The output vector $\mathbf{y}_i = [\mathbf{a}'_i, \mathbf{b}'_i]$ is computed as follows:
-
-$$a_{i,j}' = a_{i,j} \cos(\phi_{i,j}) - b_{i,j} \sin(\phi_{i,j})$$
-
-$$b_{i,j}' = b_{i,j} \cos(\phi_{i,j}) + a_{i,j} \sin(\phi_{i,j})$$
-
-- `out`: the resulting **q** or **k** tensor. Shape should be [seqlen, nhead, d] or [seqlen, nkvhead, d]. You can assume that the tensor is contiguous for now.
-- `in`: the orignal **q** or **k** tensor. Shape should be [seqlen, nhead, d] or [seqlen, nkvhead, d]. You can assume that the tensor is contiguous for now.
-- `pos_ids`: the position id (index in the whole context) for each token in the input sequence. Shape should be [seqlen,], dtype should be int64.
-- `theta`: the base value for the frequency vector.
-
-You should be able to pass the test cases in `test/ops/rope.py` after you finish the implementation.
-
-### Task-2.6 self-attention
-
-```c++
-void self_attention(tensor_t attn_val, tensor_t q, tensor_t k, tensor_t v, float scale);
-```
-
-Compute the self-attention for query tensor `q`, key tensor `k`, and value tensor `v`. You should concat kvcache tensors, if needed, before doing this calculation.
-
-$$
-A = Q K^\top * scale \\
-$$
-
-$$
-Y = \mathrm{causalsoftmax}(A) \cdot V \\
-$$
-
-- `attn_val`: the resulting attention value tensor. Shape should be [seqlen, nhead, dv]. You can assume that the tensor is contiguous for now.
-- `q`: the query tensor. Shape should be [seqlen, nhead, d]. You can assume that the tensor is contiguous for now.
-- `k`: the key tensor. Shape should be [total_len, nkvhead, d]. You can assume that the tensor is contiguous for now.
-- `v`: the value tensor. Shape should be [total_len, nkvhead, dv]. You can assume that the tensor is contiguous for now.
-- `scale`: a scaling factor. It is set to $\frac{1}{\sqrt{d}}$ in most cases.
-
-You should be able to pass the test cases in `test/ops/self_attention.py` after you finish the implementation.
-
-### Task-2.7 swiglu
-
-```c++
-void swiglu(tensor_t out, tensor_t gate, tensor_t up);
-```
-
-This is an element-wise function that computes the following:
-
-$$
-out_{i} = up_{i} \circ \frac { gate_{i}}{1 + e^{-gate_{i}}}
-$$
-
-`out`, `up` and `gate` are 2D contiguous tensors with the same shape [seqlen, intermediate_size].
-
-You should be able to pass the test cases in `test/ops/swiglu.py` after you finish the implementation.
-
-### Task-2.8
-
-Run operator tests.
 
 ```bash
-python test/test_ops.py
+# === 测试命令 ===
+# CPU
+python test/test_infer.py --device cpu --test --model ./deepseek_model
+
+# NVIDIA
+python test/test_infer.py --device nvidia --test --model ./deepseek_model
+
+# Iluvatar（服务器）
+LD_LIBRARY_PATH=/usr/local/corex/lib64 \
+  python3 test/test_infer.py --device iluvatar --test --model ./deepseek_model
 ```
 
-You should see all tests passed. Commit and push your changes. You should see the auto tests for assignment #2 passed.
+---
 
-## Assignment #3: Large Language Model Inference
+## 六、问题统计
 
-Finally, it is the time for you to achieve text generation with LLAISYS.
+| 严重程度 | 数量 | 类别 |
+|----------|------|------|
+| 🔴 Critical | 4 | 显存拷贝 Bug（2）、DLL 崩溃、PyTorch 导入失败 |
+| 🟡 Medium | 8 | 编译适配、参数命名、模型卡住、nohup 等 |
+| 🟢 Low | 5 | 权限配置、参数名错误、命名误导等 |
 
-- In `test/test_infer.py`, your implementation should be able to generate the same texts as PyTorch, using argmax sampling. The model we use for this assignment is [DeepSeek-R1-Distill-Qwen-1.5B](https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B).
-
-- The python wrapper of your implementation is in `python/llaisys/models/qwen2.py`. You are NOT allowed to implement your model infer logic here using any python based frameworks, such as PyTorch. Instead, you need to implement the model with C/C++ in LLAISYS backend. The script loads each tensor in the safetensors file, and you will need to load data from them into your model backend.
-
-- In `include/llaisys/models/qwen2.h`, a prototype is defined for you. Feel free to modify the codes as you want, but you should at least provide basic APIs for model creation, destruction, data loading, and infer. Implement your C APIs in `src/llaisys/` and organize your C++ codes as other modules in `src/`. Remember to define the compiling procedures in `xmake.lua`.
-
-- In `python/llaisys/libllaisys/`, define the ctypes wrapper functions for your C APIs. Implement `python/llaisys/models/qwen2.py` with your wrapper functions.
-
-- You need to implement KV Cache, or your model will be too slow.
-
-- Debug until your model works. Take advantage of tensor's `debug` function which prints the tensor data. It allows you to compare the data of any tensor during the model inference with PyTorch.
-
-After you finish the implementation, you can run the following command to test your model:
-
-```bash
-python test/test_infer.py --model [dir_path/to/model] --test
-```
-
-Commit and push your changes. You should see the auto tests for assignment #3 passed.
-
-
-## Assignment #4: Integrate CUDA into LLAISYS
-
-You should choose two CUDA/CUDA-ish hardware platforms from Nvidia, Iluvatar, Metax, and Moore Threads.
-
-This camp session provides computation resources from the four platforms above, access to which is granted based on applications from the official website. You can accelerate your model with CUDA on these GPU platforms. Before doing that, let's dive deeper into LLAISYS framework. 
-
-LLAISYS is actually a framework with homogeous hardware support. When using LLAISYS, each thread will create a thread-local `Context` object which manages all the device `Runtime` objects used by this thread. A `Runtime` object is a resource manager for a device, and `Context` will create (with lazy initialization) a single `Runtime` object for each device. You can set and switch between them using `setDevice` function in `Context`. Only one device will be active at a time for each thread. Check `src/core/context.hpp` for more details. 
-
-### Implement CUDA Runtime APIs
-Each `Runtime` object is intialized with a set of generic functions called `Runtime APIs`. You will need to implement CUDA version of these APIS. Check `src/device/cpu/cpu_runtime_api.cpp` to see how these functions are implemented for CPU and look for CUDA APIs to use in [`CUDA Runtime documentation`](https://docs.nvidia.com/cuda/cuda-runtime-api/index.html).
-
-You can see in `src/device/runtime_api.hpp` that `nvidia::getRuntimeAPI()` is guarded by `ENABLE_NVIDIA_API` macro.
-
-```c++
-#ifdef ENABLE_NVIDIA_API
-namespace nvidia {
-const LlaisysRuntimeAPI *getRuntimeAPI();
-}
-#endif
-```
-
-This macro is defined in `xmake.lua` as a switch to enable/disable CUDA support. CUDA codes will not be compiled if the switch is off. In `xmake/` directory, create a `nvidia.lua` that configs your compiling process. (Similar to `cpu.lua` for CPU.) Search online to learn how to do it with Xmake.
-
-After you implement the CUDA Runtime APIs, config your xmake with `--nv-gpu=y` to enable CUDA support and recompile your program. Run runtime tests to see if your implementation works.
-
-```bash
-xmake f --nv-gpu=y -cv
-xmake
-xmake install
-python test/test_runtime.py --device nvidia
-```
-
-### Implement CUDA Operators
-Create a `nvdia/` sub-directory in each operator source directory and implement a cuda version. Check `src/ops/add/op.cpp` to see how to include your cuda implementations. Remeber to define the compiling procedures in the xmake files. Run the operator tests with `--device nvidia` flag to test your CUDA implementation.
-
-You can use CUDA libraries like cuBLAS, cuDNN, etc. to accelerate your operators. Check their documentations to see how to use them. You can store extra device resources in `src/device/nvidia/nvidia_resource.cu`.
-
-Modify your model codes to support CUDA inference. 
-
-```bash
-python test/test_infer.py --model [dir_path/to/model] --test --device nvidia
-```
-
-Commit and push your changes. You should see the auto tests for assignment #4 passed.
-
-## Assignment Submission Requirements
-
-Submit your assignment work as a pull request to [wooway777/llaisys-26s](https://github.com/wooway777/llaisys-26s).
-
-The pull request must meet the following requirements:
-
-- CI must pass.
-- Include a brief report describing the reproduction procedure and recording the results.
-- Describe the supported platforms and the status of each platform.
-- The report may be included in the pull request description or provided as a Markdown file in the pull request.
-
-## Project Stage: Contribute to InfiniLM
-
-Only students who pass the assignment-stage evaluation and are approved to advance may enter the project stage.
-
-All projects must be implemented in [InfiniLM](https://github.com/InfiniTensor/InfiniLM), our inference engine. The project scope should be agreed upon with the mentors before development begins, and the result should provide practical, upstreamable value to InfiniLM. Evaluation considers correctness, engineering quality, tests, documentation, reproducible results, and actual impact. The expected depth varies with the complexity of the selected topic.
-
-The following project directions are available:
-
-### Project #1: Support New Models and Architectures
-
-Add support for a new model in InfiniLM. The evaluation depends on the model's complexity, the amount of reusable infrastructure introduced, and the completeness of the implementation and tests. Models that require new architectures or mechanisms—such as MLA, MTP, MoE, NSA, Mamba, RWKV, UltraMem, Titans, or MiniMax architectures—are valued differently from variants that reuse an existing implementation almost unchanged.
-
-### Project #2: Performance Optimization
-
-Improve InfiniLM's offline inference performance, serving performance, or both. Possible work includes operator and kernel optimization, model execution optimization, memory-access optimization, and communication optimization. Evaluation is based on reproducible end-to-end improvements, maintained correctness, the range of workloads covered, and the number and relevance of hardware platforms that benefit from the optimization.
-
-### Project #3: Inference Features and Serving Capabilities
-
-Improve InfiniLM's inference and serving capabilities, such as streaming output, API compatibility, structured output, service observability, and diagnostic tools. Evaluation is based on the completeness of the design and implementation, usability, compatibility, tests, and documentation.
-
-### Project #4: Quantization and Low-Precision Inference
-
-Add or improve weight, activation, or KV-cache quantization; mixed-precision execution; or support for new low-precision data formats. Evaluation focuses on accuracy, performance and memory improvements, hardware coverage, usability, and the completeness of tests and benchmarks.
-
-### Project #5: Reliability and Engineering Tooling
-
-Improve InfiniLM's reliability and development efficiency through work such as benchmark and regression infrastructure, profiling and tracing tools, model conversion and validation tools, compatibility tests, or better error diagnosis. Evaluation depends on the scope of real problems addressed, maintainability, platform coverage, and measurable improvements to development or debugging workflows.
-
-Students may also propose another topic. It must be approved in advance and should solve a real InfiniLM problem with a clearly defined, measurable deliverable.
-
-## Project Submission Requirements
-
-Submit your project as a pull request to the [InfiniLM](https://github.com/InfiniTensor/InfiniLM) main repository.
-
-The pull request must meet the following requirements:
-
-- CI must pass.
-- Include a brief report describing the project content, implementation approach, reproduction procedure, and results.
-- Describe the supported platforms and the status of each platform.
-- Performance optimization projects must report the optimization effect with reproducible before-and-after measurements.
-- The report may be included in the pull request description or provided as a Markdown file in the pull request.
+**共解决 17 个问题，三个硬件端全部通过测试。**

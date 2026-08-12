@@ -1,14 +1,16 @@
 import gc
 from test_utils import *
-
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..", "python")))
 import argparse
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 from huggingface_hub import snapshot_download
-import os
+
 import time
 import llaisys
-import sys
+
 import io
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -25,7 +27,7 @@ def load_hf_model(model_path=None, device_name="cpu"):
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         device_map=torch_device(device_name),
         trust_remote_code=True,
     )
@@ -81,7 +83,7 @@ def llaisys_infer(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia"], type=str)
+    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia", "iluvatar"], type=str)
     parser.add_argument("--model", default=None, type=str)
     parser.add_argument("--prompt", default="Who are you?", type=str)
     parser.add_argument("--max_steps", default=128, type=int)
