@@ -1,5 +1,5 @@
 #include "llaisys_tensor.hpp"
-
+#include <cstdio>
 #include <vector>
 
 __C {
@@ -65,18 +65,44 @@ __C {
         return uint8_t(tensor->tensor->isContiguous());
     }
 
-    void tensorLoad(
-        llaisysTensor_t tensor,
-        const void *data) {
-        tensor->tensor->load(data);
+    void tensorLoad(llaisysTensor_t tensor, const void *data) {
+        fprintf(stderr, "[C] tensorLoad called, tensor=%p, data=%p\n", (void *)tensor, data);
+        fflush(stderr);
+        if (!tensor) {
+            fprintf(stderr, "[C] tensor is null!\n");
+            fflush(stderr);
+            return;
+        }
+        // 尝试获取 tensor->tensor 的原始指针
+        auto t_ptr = tensor->tensor.get();
+        fprintf(stderr, "[C] tensor->tensor.get() = %p\n", (void *)t_ptr);
+        fflush(stderr);
+        if (!t_ptr) {
+            fprintf(stderr, "[C] tensor->tensor is null!\n");
+            fflush(stderr);
+            return;
+        }
+        // 调用 load
+        t_ptr->load(data);
     }
-
-    llaisysTensor_t tensorView(
-        llaisysTensor_t tensor,
-        size_t * shape,
-        size_t ndim) {
-        std::vector<size_t> shape_vec(shape, shape + ndim);
-        return new LlaisysTensor{tensor->tensor->view(shape_vec)};
+    llaisysTensor_t tensorView(llaisysTensor_t tensor, size_t *shape, size_t ndim) {
+        fprintf(stderr, "[C] tensorView called\n");
+        fflush(stderr);
+        if (!tensor || !shape) {
+            return nullptr;
+        }
+        std::vector<size_t> shape_vec(ndim);
+        fprintf(stderr, "[C] copying shape\n");
+        fflush(stderr);
+        for (size_t i = 0; i < ndim; ++i) {
+            shape_vec[i] = shape[i];
+        }
+        fprintf(stderr, "[C] shape copied, calling view\n");
+        fflush(stderr);
+        auto new_tensor = new LlaisysTensor{tensor->tensor->view(shape_vec)};
+        fprintf(stderr, "[C] view returned\n");
+        fflush(stderr);
+        return new_tensor;
     }
 
     llaisysTensor_t tensorPermute(

@@ -50,7 +50,8 @@ public:
 
     // Load data from host memory
     void load(const void *src);
-
+    // 新增：把张量数据拷回主机内存，和load对称
+    void save(void* dst) const;
     // Challenging features
     tensor_t contiguous() const;
     tensor_t reshape(const std::vector<size_t> &shape) const;

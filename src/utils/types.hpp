@@ -1,9 +1,12 @@
-#include "llaisys.h"
+#pragma once
 
+#include "llaisys.h"
 #include <iostream>
 #include <stdexcept>
+#include <type_traits>
 
 namespace llaisys {
+
 struct CustomFloat16 {
     uint16_t _v;
 };
@@ -115,25 +118,24 @@ bf16_t _f32_to_bf16(float val);
 
 template <typename TypeTo, typename TypeFrom>
 TypeTo cast(TypeFrom val) {
-    if constexpr (std::is_same<TypeTo, TypeFrom>::value) {
-        return val;
-    } else if constexpr (std::is_same<TypeTo, fp16_t>::value && std::is_same<TypeFrom, float>::value) {
+    // float -> fp16_t
+    if constexpr (std::is_same_v<TypeTo, fp16_t> && std::is_same_v<TypeFrom, float>) {
         return _f32_to_f16(val);
-    } else if constexpr (std::is_same<TypeTo, fp16_t>::value && !std::is_same<TypeFrom, float>::value) {
-        return _f32_to_f16(static_cast<float>(val));
-    } else if constexpr (std::is_same<TypeFrom, fp16_t>::value && std::is_same<TypeTo, float>::value) {
+    }
+    // fp16_t -> float
+    else if constexpr (std::is_same_v<TypeTo, float> && std::is_same_v<TypeFrom, fp16_t>) {
         return _f16_to_f32(val);
-    } else if constexpr (std::is_same<TypeFrom, fp16_t>::value && !std::is_same<TypeTo, float>::value) {
-        return static_cast<TypeTo>(_f16_to_f32(val));
-    } else if constexpr (std::is_same<TypeTo, bf16_t>::value && std::is_same<TypeFrom, float>::value) {
+    }
+    // float -> bf16_t
+    else if constexpr (std::is_same_v<TypeTo, bf16_t> && std::is_same_v<TypeFrom, float>) {
         return _f32_to_bf16(val);
-    } else if constexpr (std::is_same<TypeTo, bf16_t>::value && !std::is_same<TypeFrom, float>::value) {
-        return _f32_to_bf16(static_cast<float>(val));
-    } else if constexpr (std::is_same<TypeFrom, bf16_t>::value && std::is_same<TypeTo, float>::value) {
+    }
+    // bf16_t -> float
+    else if constexpr (std::is_same_v<TypeTo, float> && std::is_same_v<TypeFrom, bf16_t>) {
         return _bf16_to_f32(val);
-    } else if constexpr (std::is_same<TypeFrom, bf16_t>::value && !std::is_same<TypeTo, float>::value) {
-        return static_cast<TypeTo>(_bf16_to_f32(val));
-    } else {
+    }
+    // 数值类型间的标准转换
+    else {
         return static_cast<TypeTo>(val);
     }
 }

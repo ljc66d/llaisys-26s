@@ -6,6 +6,12 @@
 #include <numeric>
 #include <sstream>
 
+namespace llaisys::device::cpu {
+    const LlaisysRuntimeAPI* getRuntimeAPI();
+}
+namespace llaisys::device::nvidia {
+    const LlaisysRuntimeAPI* getRuntimeAPI();
+}
 namespace llaisys {
 
 Tensor::Tensor(TensorMeta meta, core::storage_t storage, size_t offset)
@@ -164,29 +170,153 @@ void Tensor::debug() const {
 }
 
 bool Tensor::isContiguous() const {
-    TO_BE_IMPLEMENTED();
+    size_t ndim = _meta.shape.size();
+    if (ndim == 0) {
+        return true;
+    }
+    ptrdiff_t expected = 1;
+    for (ptrdiff_t i = static_cast<ptrdiff_t>(ndim) - 1; i >= 0; --i) {
+        if (_meta.strides[i] != expected) {
+            return false;
+        }
+        expected *= static_cast<ptrdiff_t>(_meta.shape[i]);
+    }
     return true;
 }
 
 tensor_t Tensor::permute(const std::vector<size_t> &order) const {
-    TO_BE_IMPLEMENTED();
-    return std::shared_ptr<Tensor>(new Tensor(_meta, _storage));
+    size_t ndim = _meta.shape.size();
+    if (order.size() != ndim) {
+        throw std::runtime_error("permute: order size does not match tensor dimensions");
+    }
+    std::vector<size_t> new_shape(ndim);
+    std::vector<ptrdiff_t> new_strides(ndim);
+    for (size_t i = 0; i < ndim; ++i) {
+        new_shape[i] = _meta.shape[order[i]];
+        new_strides[i] = _meta.strides[order[i]];
+    }
+    TensorMeta new_meta{_meta.dtype, std::move(new_shape), std::move(new_strides)};
+    return std::shared_ptr<Tensor>(new Tensor(new_meta, _storage, _offset));
 }
 
 tensor_t Tensor::view(const std::vector<size_t> &shape) const {
-    TO_BE_IMPLEMENTED();
-    return std::shared_ptr<Tensor>(new Tensor(_meta, _storage));
+    size_t new_numel = 1;
+    for (size_t s : shape) { new_numel *= s; }
+    if (new_numel != this->numel()) {
+        throw std::runtime_error("view: total element count mismatch");
+    }
+    if (!this->isContiguous()) {
+        throw std::runtime_error("view: tensor must be contiguous...");
+    }
+    size_t ndim = shape.size();
+    std::vector<ptrdiff_t> new_strides(ndim);
+    ptrdiff_t stride = 1;
+    for (int i = static_cast<int>(ndim) - 1; i >= 0; --i) {
+        new_strides[i] = stride;
+        stride *= static_cast<ptrdiff_t>(shape[i]);
+    }
+    TensorMeta new_meta{this->dtype(), shape, std::move(new_strides)};
+    return std::shared_ptr<Tensor>(new Tensor(new_meta, _storage, _offset));
 }
 
 tensor_t Tensor::slice(size_t dim, size_t start, size_t end) const {
-    TO_BE_IMPLEMENTED();
-    return std::shared_ptr<Tensor>(new Tensor(_meta, _storage));
+    size_t ndim = _meta.shape.size();
+    if (dim >= ndim) {
+        throw std::runtime_error("slice: dim out of range");
+    }
+    size_t dim_size = _meta.shape[dim];
+    if (start >= dim_size || end > dim_size || start>=end) {
+        throw std::runtime_error("slice: invalid start/end");
+    }
+    size_t new_offset = _offset + start * _meta.strides[dim] * this->elementSize();
+    std ::vector<size_t> new_shape = _meta.shape;
+    new_shape[dim] = end - start;
+    TensorMeta new_meta{_meta.dtype, std::move(new_shape), _meta.strides};
+
+    return std::shared_ptr<Tensor>(new Tensor(new_meta, _storage, new_offset));
 }
 
 void Tensor::load(const void *src_) {
-    TO_BE_IMPLEMENTED();
-}
+    if (src_ == nullptr) {
+        throw std::runtime_error("Tensor::load: source pointer is null");
+    }
+    if (!this->isContiguous()) {
+        throw std::runtime_error(
+            "Tensor::load: tensor must be contiguous to load data from a raw pointer. "
+            "Please call .contiguous() first if you have a view (slice/transpose).");
+    }
+    size_t total_bytes = this->numel() * this->elementSize();
+    if (total_bytes == 0) {
+        return;
+    }
 
+    llaisysDeviceType_t dev_type = this->deviceType();
+    int dev_id = this->deviceId();
+
+    // 按张量自身设备类型，直接获取对应 Runtime，不依赖上下文
+    const LlaisysRuntimeAPI* runtime = nullptr;
+    llaisysMemcpyKind_t kind;
+
+    switch (dev_type) {
+        case LLAISYS_DEVICE_CPU:
+            runtime = device::cpu::getRuntimeAPI();
+            kind = LLAISYS_MEMCPY_H2H;
+            break;
+
+    #ifdef ENABLE_NVIDIA_API
+        case LLAISYS_DEVICE_NVIDIA:
+            runtime = device::nvidia::getRuntimeAPI();
+            kind = LLAISYS_MEMCPY_H2D;
+            break;
+    #endif
+
+        default:
+            throw std::runtime_error("Tensor::load: unsupported device type");
+    }
+
+    // 先切换到目标设备上下文，保证 CUDA 环境正确
+    runtime->set_device(dev_id);
+    // 执行对应类型的同步拷贝
+    runtime->memcpy_sync(this->data(), src_, total_bytes, kind);
+}
+void Tensor::save(void *dst_) const {
+    if (dst_ == nullptr) {
+        throw std::runtime_error("Tensor::save: destination pointer is null");
+    }
+    if (!this->isContiguous()) {
+        throw std::runtime_error("Tensor::save: tensor must be contiguous");
+    }
+    size_t total_bytes = this->numel() * this->elementSize();
+    if (total_bytes == 0) {
+        return;
+    }
+
+    llaisysDeviceType_t dev_type = this->deviceType();
+    int dev_id = this->deviceId();
+
+    const LlaisysRuntimeAPI* runtime = nullptr;
+    llaisysMemcpyKind_t kind;
+
+    switch (dev_type) {
+        case LLAISYS_DEVICE_CPU:
+            runtime = device::cpu::getRuntimeAPI();
+            kind = LLAISYS_MEMCPY_H2H;
+            break;
+
+    #ifdef ENABLE_NVIDIA_API
+        case LLAISYS_DEVICE_NVIDIA:
+            runtime = device::nvidia::getRuntimeAPI();
+            kind = LLAISYS_MEMCPY_D2H;
+            break;
+    #endif
+
+        default:
+            throw std::runtime_error("Tensor::save: unsupported device type");
+    }
+
+    runtime->set_device(dev_id);
+    runtime->memcpy_sync(dst_, this->data(), total_bytes, kind);
+}
 tensor_t Tensor::contiguous() const {
     TO_BE_IMPLEMENTED();
     return std::shared_ptr<Tensor>(new Tensor(_meta, _storage));
