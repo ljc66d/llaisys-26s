@@ -203,6 +203,50 @@ LD_LIBRARY_PATH=/usr/local/corex/lib64 \
 ```
 
 ---
+Commit and push your changes. You should see the auto tests for assignment #4 passed.
+
+## Assignment Submission Requirements
+
+Submit your assignment work as a pull request to [wooway777/llaisys-26s](https://github.com/wooway777/llaisys-26s).
+
+The pull request must meet the following requirements:
+
+- CI must pass.
+- Include a brief report describing the reproduction procedure and recording the results.
+- Describe the supported platforms and the status of each platform.
+- The report may be included in the pull request description or provided as a Markdown file in the pull request.
+
+## Project Stage: Contribute to InfiniLM
+
+Only students who pass the assignment-stage evaluation and are approved to advance may enter the project stage.
+
+All projects must be implemented in [InfiniLM](https://github.com/InfiniTensor/InfiniLM), our inference engine. The project scope should be agreed upon with the mentors before development begins, and the result should provide practical, upstreamable value to InfiniLM. Evaluation considers correctness, engineering quality, tests, documentation, reproducible results, and actual impact. The expected depth varies with the complexity of the selected topic.
+
+The following project directions are available:
+
+### Project #1: Support New Models and Architectures (Recommended)
+
+Add support for a new model in InfiniLM. Implementations should support NVIDIA GPUs as a baseline. Additional support for domestic accelerator platforms may earn extra credit based on the difficulty of the adaptation. Ascend is eligible for the largest bonus because adapting to it requires the most substantial implementation changes. The evaluation also depends on the model's complexity, the amount of reusable infrastructure introduced, and the completeness of the implementation and tests. Models that require new architectures or mechanisms—such as MLA, MTP, MoE, NSA, Mamba, RWKV, UltraMem, Titans, or MiniMax architectures—are valued differently from variants that reuse an existing implementation almost unchanged.
+
+### Project #2: Performance Optimization
+
+Improve InfiniLM's offline inference performance, serving performance, or both. Possible work includes operator and kernel optimization, model execution optimization, memory-access optimization, and communication optimization. Evaluation is based on reproducible end-to-end improvements, maintained correctness, the range of workloads covered, and the number and relevance of hardware platforms that benefit from the optimization.
+
+### Project #3: Inference Features and Serving Capabilities
+
+Improve InfiniLM's inference and serving capabilities, such as streaming output, API compatibility, structured output, service observability, and diagnostic tools. Evaluation is based on the completeness of the design and implementation, usability, compatibility, tests, and documentation.
+
+### Project #4: Quantization and Low-Precision Inference
+
+Add or improve weight, activation, or KV-cache quantization; mixed-precision execution; or support for new low-precision data formats. Evaluation focuses on accuracy, performance and memory improvements, hardware coverage, usability, and the completeness of tests and benchmarks.
+
+### Project #5: Reliability and Engineering Tooling
+
+Improve InfiniLM's reliability and development efficiency through work such as benchmark and regression infrastructure, profiling and tracing tools, model conversion and validation tools, compatibility tests, or better error diagnosis. Evaluation depends on the scope of real problems addressed, maintainability, platform coverage, and measurable improvements to development or debugging workflows.
+
+Students may also propose another topic. It must be approved in advance and should solve a real InfiniLM problem with a clearly defined, measurable deliverable.
+
+## Project Submission Requirements
 
 ## 六、问题统计
 
